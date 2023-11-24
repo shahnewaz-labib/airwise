@@ -8,12 +8,14 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"time"
 )
 
 type SensorData struct {
-	Temp     float64 `json:"temp"`
-	Dust     float64     `json:"dust"`
-	Humidity float64     `json:"humidity"`
+	Timestamp time.Time `json:"timestamp"`
+	Temp      float64   `json:"temp"`
+	Dust      int       `json:"dust"`
+	Humidity  int       `json:"humidity"`
 }
 
 var sensorDataFile = "sensordata.json"
@@ -22,46 +24,42 @@ var mu sync.Mutex // Mutex for concurrent access to the file
 func main() {
 	router := gin.Default()
 
-    router.POST("/api/sensor", func(c *gin.Context) {
-        var sensorData SensorData
+	// Define a POST endpoint for handling sensor data
+	router.POST("/api/sensor", func(c *gin.Context) {
+		var sensorData SensorData
 
-        // Bind JSON to the SensorData struct
-        if err := c.ShouldBindJSON(&sensorData); err != nil {
-            c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-            return
-        }
+		// Bind JSON to the SensorData struct
+		if err := c.ShouldBindJSON(&sensorData); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 
-        // Lock the mutex before writing to the file
-        mu.Lock()
-        defer mu.Unlock()
+		// Lock the mutex before writing to the file
+		mu.Lock()
+		defer mu.Unlock()
 
-        // Read existing data from file
-        existingData, err := readSensorDataFromFile()
-        if err != nil {
-            c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read sensor data file"})
-            return
-        }
+		// Read existing data from file
+		existingData, err := readSensorDataFromFile()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read sensor data file"})
+			return
+		}
 
-        // Append the new data
-        existingData = append(existingData, sensorData)
+		// Append the new data
+		existingData = append(existingData, sensorData)
 
-        // Write updated data back to the file
-        err = writeSensorDataToFile(existingData)
-        if err != nil {
-            c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to write sensor data to file"})
-            return
-        }
+		// Write updated data back to the file
+		err = writeSensorDataToFile(existingData)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to write sensor data to file"})
+			return
+		}
 
-        // Print the received sensor data
-        fmt.Printf("Received Sensor Data: %+v\n", sensorData)
+		// Print the received sensor data
+		fmt.Printf("Received Sensor Data: %+v\n", sensorData)
 
-        // Print the updated data
-        fmt.Printf("Updated Sensor Data: %+v\n", existingData)
-
-        c.JSON(http.StatusOK, gin.H{"message": "Sensor data received successfully"})
-    })
-
-
+		c.JSON(http.StatusOK, gin.H{"message": "Sensor data received successfully", "timestamp": sensorData.Timestamp})
+	})
 
 	// Define a GET endpoint for retrieving sensor data
 	router.GET("/api/sensor", func(c *gin.Context) {
@@ -78,6 +76,58 @@ func main() {
 
 		c.JSON(http.StatusOK, sensorData)
 	})
+
+    router.GET("/api/temp", func(c *gin.Context) {
+		// Lock the mutex before reading from the file
+		mu.Lock()
+		defer mu.Unlock()
+
+		// Read data from file
+		sensorData, err := readSensorDataFromFile()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read sensor data file"})
+			return
+		}
+
+		// Check if there is any sensor data
+		if len(sensorData) == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"error": "No sensor data available"})
+			return
+		}
+
+		// Get the last element (latest data point)
+		lastSensorData := sensorData[len(sensorData)-1]
+
+		// Return the temperature
+		c.JSON(http.StatusOK, gin.H{"temp": lastSensorData.Temp})
+	})
+
+
+    router.GET("/api/humidity", func(c *gin.Context) {
+		// Lock the mutex before reading from the file
+		mu.Lock()
+		defer mu.Unlock()
+
+		// Read data from file
+		sensorData, err := readSensorDataFromFile()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read sensor data file"})
+			return
+		}
+
+		// Check if there is any sensor data
+		if len(sensorData) == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"error": "No sensor data available"})
+			return
+		}
+
+		// Get the last element (latest data point)
+		lastSensorData := sensorData[len(sensorData)-1]
+
+		// Return the temperature
+		c.JSON(http.StatusOK, gin.H{"humidity": lastSensorData.Humidity})
+	})
+
 
 	// Run the server on port 8080
 	router.Run(":8080")
